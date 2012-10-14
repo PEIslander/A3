@@ -516,24 +516,29 @@ toAstS (Node "S" [Node "if" _,    c1@(Node "C" _), sl1@(Node "SL" _), (Node "end
 toAstS (Node "S" [Node lit _ , (Node ":=" _) , e1@(Node "E" _ )]) = lit := (toAstE e1)
 
 
+-- Handle "C"
 toAstC :: ParseTree -> Cond
 toAstC (Node "C" [ e1@(Node "E" _), ro@(Node "rn" [Node rnop []]), e2@(Node "E" _)] ) = Cond rnop (toAstE e1) (toAstE e2)
 
+-- Handle "E""T""FT" 
 toAstE :: ParseTree -> Expr
+-- If F is Lit or F is Var
 toAstE (Node "F" [Node x []])
 	|isGNumber x = Lit (read x :: Integer)
 	|isIdentifier x = Var x
+-- If F is ( E )
 toAstE (Node "F" [ (Node "(" []), ee@(Node "E" _), (Node ")" [])]) = toAstE ee
+-- For E and T, convert the first nonterminal, 
+-- give the output to the conversion routine for second nonterminal and return the correct AST
 toAstE (Node "E" [ t@(Node "T" _), tt@(Node "TT" _) ]) = toAstETail (toAstE t) tt
 toAstE (Node "T" [ f@(Node "F" _), ft@(Node "FT" _) ]) = toAstETail (toAstE f) ft 
---toAstE _ = undefined
 
 -- The second function 'toAstETail' handles TT and FT
 toAstETail :: Expr -> ParseTree -> Expr
--- toAstETail e (Node _ ...) = ... (toAstE ...) ...
--- toAstETail e ... = ...
+--base cases for TT and FT
 toAstETail e (Node "TT" []) = e
 toAstETail e (Node "FT" []) = e
+--nontrivial cases, bind the left child of tree with its parents and right sibling from a recursive call.
 toAstETail e (Node "TT" [ (Node "ao" [Node binop []]) , t1, tt2 ]) = toAstETail (Op binop e (toAstE t1) ) tt2
 toAstETail e (Node "FT" [ (Node "mo" [Node binop []]) , f1, ft2 ]) = toAstETail (Op binop e (toAstE f1) ) ft2
 
@@ -552,8 +557,11 @@ data Environment = Env
 -- Be sure to understand this type!  Use 'Left' values to
 -- indicate errors.
 lookupEnv :: String -> Environment -> Either String Value
---lookupEnv _ _ = undefined
-lookupEnv var (Env [] _ _)= Left "Tah-Dah Undeclared!!!" 	
+-- lookupEnv _ _ = undefined
+
+-- if find no such var in list, return Left w/ error message.
+lookupEnv var (Env [] _ _)= Left $ "Attempt to use uninitialized variable: " ++ var ++ ". Evaluation Aborted."
+-- if find var, return its value
 lookupEnv var (Env ((a,b):xs) ein eout) 
 	| a == var = Right b
 	| otherwise = lookupEnv var (Env xs ein eout)
@@ -562,90 +570,123 @@ updateEnv :: String -> Environment -> Value -> Environment
 --updateEnv _ _ _ = undefined
 updateEnv var (Env env ein eout) value = (Env (pil env var value)  ein eout)
 	where
+	--helper function pil for updating bindings
 	pil:: [(String,Value)] -> String -> Value -> [(String,Value)]	
-	pil [] var value = [(var,value)]
-	pil ((a,b):xs) var value  
+	pil [] var value = [(var,value)]	-- if first seen, add pair to end of list
+	pil ((a,b):xs) var value 		-- if seen before, update var with new value 
 		| a == var = (a,value):xs
 		| otherwise = (a,b):(pil xs var value)
 
 -- IO
 
+-- readEnv
 readEnv :: Environment -> Either String (Environment, Value)
---readEnv _ = undefined
-readEnv (Env env ein@(x:xs) eout)  
-		|ein == [] =  Left "Hahaha No more input!"
-		|otherwise =  Right ((Env env xs eout), (read x :: Integer))
+-- read an empty input list means not enough argument is provided.
+readEnv (Env env []  eout)  = Left "Not enough argument provided. Evaluation aborted."
+-- read an input list with some more argument
+readEnv (Env env (x:xs) eout)  
+		| isGNumber x = Right $ ((Env env xs eout), (read x :: Integer)) -- Next input is number.
+		| otherwise = Left $ "Non-numerical Input: "++ x		 -- Catch Non-numerical input.
 
 
+-- writeEnv
 writeEnv :: Environment -> String -> Environment
---writeEnv _ = undefined
+-- Put new output as head of output list.
+-- This list will be reversed after evaluation of whole AST.
 writeEnv (Env env ein eout) x =  (Env env ein (x:eout))
 -- -------------------------------------------------------
 
 -- The next two functions are complete and illustrate using
 -- 'do' notation to handle errors without our writing explicit
 -- handling of error cases.
+
+-- Entry Point of Whole Program
 interpret :: ParseTable -> [String] -> [String] -> Either String [String]
 interpret table program input = do
     t <- parse table program
     let ast = toAstP t
     interpretAst ast input
 
+-- Evaluate Abstract Syntax Tree
 interpretAst :: AST -> [String] -> Either String [String]
 interpretAst ast input = do
     (Env _ _ output) <- interpretSL ast (Env [] input [])
     Right $ reverse output
 
+-- Evalueate Statement List 
 interpretSL :: [Statement] -> Environment -> Either String Environment
+-- Statement List base case when no more statment left: 
+-- do nothing and return the current environment.
 interpretSL [] env = Right env
+-- Statement List:
+-- Interprete the first statement, then interepret the rest of statment list with the updated Enviroment.
 interpretSL (st:stml) env = do
 	env2 <- interpretS st env
 	interpretSL stml env2
 
+-- Evaluate Statement
 interpretS :: Statement -> Environment -> Either String Environment
-interpretS (Read var) (Env env ein eout) = do 
-			((Env env2 ein2 eout2) , b) <- readEnv (Env env ein eout)
-			Right (Env ((var,b):env) ein2 eout)
+-- Statement Read
+interpretS (Read var) (Env env ein eout) = do 	
+			((Env env2 ein2 eout2) , b) <- readEnv (Env env ein eout) 	-- read from Env
+			Right (Env ((var,b):env) ein2 eout)	-- update bindings
+
+-- Statement Write
 interpretS (Write expr) env = do 
-	value <- interpretE expr env
-	Right (writeEnv env (show value))
+	value <- interpretE expr env       -- First Evaluate Expr
+	Right (writeEnv env (show value))  -- Write to Output the value of Expr
+
+-- Statement If
 interpretS (If cond stmt) env = do
-	b <- interpretCond cond env 
-	case b of True -> interpretSL stmt env
-	          False -> Right env
-interpretS (While cond stmt) env = do
-	b <- interpretCond cond env
-	case b of True -> do
-			k <- interpretSL stmt env
-		        interpretS (While cond stmt) k
-		  False -> Right env
+	b <- interpretCond cond env  		 -- First evaluate Cond
+	case b of True -> interpretSL stmt env	 -- If Cond is True - Evaluate block return updated Env
+	          False -> Right env		 -- If Cond is False - Do Nothing return current Env
+
+-- Statement While
+interpretS (While cond stmt) env = do		
+	b <- interpretCond cond env			-- First evaluate Cond
+	case b of True -> do				-- If Cond is True
+			k <- interpretSL stmt env	-- 	evaluate block & return updated Env
+		        interpretS (While cond stmt) k  -- 	evaluate While stmt with newly updated Env
+		  False -> Right env			-- If Cond is False, return current Env
+
+-- Statement Ident := Expr
 interpretS (x := expr) env = do
-	value <- interpretE expr env
-	Right $ updateEnv x env value 
+	value <- interpretE expr env		-- First evaluate RHS Expr
+	Right $ updateEnv x env value 		-- Update Env with new value 
 
-
+-- Interpret Cond
 interpretCond :: Cond -> Environment -> Either String Bool
 interpretCond (Cond rop expr1 expr2) env = do
-	e1<- interpretE expr1 env
-	e2<- interpretE expr2 env
-	case rop of "==" -> Right $ e1 == e2
+	e1<- interpretE expr1 env			-- Evaluate Expr 1
+	e2<- interpretE expr2 env			-- Evaluate Expr 2
+	case rop of "==" -> Right $ e1 == e2		-- Get Logical Value According to Different Logical Operator
 		    "!=" -> Right $ e1 /= e2
 		    ">=" -> Right $ e1 >= e2
 		    ">"  -> Right $ e1 >  e2
 		    "<"  -> Right $ e1 <  e2
 		    "<=" -> Right $ e1 <= e2
 
+-- Interpret Expr
 interpretE :: Expr -> Environment -> Either String Value
+-- Expr is Lit : Return value of LIt
 interpretE (Lit x) env = Right x
+-- Expr is Var : Look up from Env
 interpretE (Var x) env = do 
 		lookupEnv x env
+-- Expr is (Op binop e1 e2)
 interpretE (Op binop e1 e2) env =  do
-		re1 <- (interpretE e1 env)
-		re2 <- (interpretE e2 env)
+		re1 <- (interpretE e1 env)  		-- Evaluate Expr 1
+		re2 <- (interpretE e2 env)		-- Evaluate Expr 2
+		-- Evaluate According to Different Binary Operator
 	 	case binop of "+" -> Right $ re1 + re2
 			      "-" -> Right $ re1 - re2
 		              "*" -> Right $ re1 * re2
-		              "/" -> Right $ div re1  re2
+		              "/" -> 
+				-- Catch Division by 0 Using Left
+				case re2 of 0 -> Left  "Division by 0 detected. Evaluation Aborted."
+				-- Otherwise return value after division
+					    _ -> Right $ div re1 re2
 
 -- -----------------------------------------------------
 p=words "read n \n\
