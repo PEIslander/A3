@@ -572,14 +572,14 @@ updateEnv var (Env env ein eout) value = (Env (pil env var value)  ein eout)
 
 readEnv :: Environment -> Either String (Environment, Value)
 --readEnv _ = undefined
-readEnv k@(Env env ein@(x:xs) eout)  
+readEnv (Env env ein@(x:xs) eout)  
 		|ein == [] =  Left "Hahaha No more input!"
-		|otherwise =  Right (k, (read x :: Integer))
+		|otherwise =  Right ((Env env xs eout), (read x :: Integer))
 
 
 writeEnv :: Environment -> String -> Environment
-writeEnv _ = undefined
-
+--writeEnv _ = undefined
+writeEnv (Env env ein eout) x =  (Env env ein (x:eout))
 -- -------------------------------------------------------
 
 -- The next two functions are complete and illustrate using
@@ -597,16 +597,45 @@ interpretAst ast input = do
     Right $ reverse output
 
 interpretSL :: [Statement] -> Environment -> Either String Environment
-interpretSL _ _ = undefined
+interpretSL [] env = Right env
+interpretSL (st:stml) env = do
+	env2 <- interpretS st env
+	interpretSL stml env2
 
 interpretS :: Statement -> Environment -> Either String Environment
-interpretS _ _ = undefined
+interpretS (Read var) (Env env ein eout) = do 
+			((Env env2 ein2 eout2) , b) <- readEnv (Env env ein eout)
+			Right (Env ((var,b):env) ein2 eout)
+interpretS (Write expr) env = do 
+	value <- interpretE expr env
+	Right (writeEnv env (show value))
+interpretS (If cond stmt) env = do
+	b <- interpretCond cond env 
+	case b of True -> interpretSL stmt env
+	          False -> Right env
+interpretS (While cond stmt) env = do
+	b <- interpretCond cond env
+	case b of True -> do
+			k <- interpretSL stmt env
+		        interpretS (While cond stmt) k
+		  False -> Right env
+interpretS (x := expr) env = do
+	value <- interpretE expr env
+	Right $ updateEnv x env value 
+
 
 interpretCond :: Cond -> Environment -> Either String Bool
-interpretCond _ _ = undefined
+interpretCond (Cond rop expr1 expr2) env = do
+	e1<- interpretE expr1 env
+	e2<- interpretE expr2 env
+	case rop of "==" -> Right $ e1 == e2
+		    "!=" -> Right $ e1 /= e2
+		    ">=" -> Right $ e1 >= e2
+		    ">"  -> Right $ e1 >  e2
+		    "<"  -> Right $ e1 <  e2
+		    "<=" -> Right $ e1 <= e2
 
 interpretE :: Expr -> Environment -> Either String Value
---interpretE _ _ = undefined
 interpretE (Lit x) env = Right x
 interpretE (Var x) env = do 
 		lookupEnv x env
