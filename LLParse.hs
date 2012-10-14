@@ -553,19 +553,28 @@ data Environment = Env
 -- indicate errors.
 lookupEnv :: String -> Environment -> Either String Value
 --lookupEnv _ _ = undefined
---lookupEnv var env = 
 lookupEnv var (Env [] _ _)= Left "Tah-Dah Undeclared!!!" 	
 lookupEnv var (Env ((a,b):xs) ein eout) 
 	| a == var = Right b
 	| otherwise = lookupEnv var (Env xs ein eout)
 
 updateEnv :: String -> Environment -> Value -> Environment
-updateEnv _ _ _ = undefined
+--updateEnv _ _ _ = undefined
+updateEnv var (Env env ein eout) value = (Env (pil env var value)  ein eout)
+	where
+	pil:: [(String,Value)] -> String -> Value -> [(String,Value)]	
+	pil [] var value = [(var,value)]
+	pil ((a,b):xs) var value  
+		| a == var = (a,value):xs
+		| otherwise = (a,b):(pil xs var value)
 
 -- IO
 
 readEnv :: Environment -> Either String (Environment, Value)
-readEnv _ = undefined
+--readEnv _ = undefined
+readEnv k@(Env env ein@(x:xs) eout)  
+		|ein == [] =  Left "Hahaha No more input!"
+		|otherwise =  Right (k, (read x :: Integer))
 
 
 writeEnv :: Environment -> String -> Environment
@@ -599,6 +608,8 @@ interpretCond _ _ = undefined
 interpretE :: Expr -> Environment -> Either String Value
 --interpretE _ _ = undefined
 interpretE (Lit x) env = Right x
+interpretE (Var x) env = do 
+		lookupEnv x env
 interpretE (Op binop e1 e2) env =  do
 		re1 <- (interpretE e1 env)
 		re2 <- (interpretE e2 env)
