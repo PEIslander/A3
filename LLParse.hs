@@ -518,20 +518,12 @@ toAstS (Node "S" [Node lit _ , (Node ":=" _) , e1@(Node "E" _ )]) = lit := (toAs
 
 toAstC :: ParseTree -> Cond
 toAstC (Node "C" [ e1@(Node "E" _), ro@(Node "rn" [Node rnop []]), e2@(Node "E" _)] ) = Cond rnop (toAstE e1) (toAstE e2)
---toAstC _ = undefined
 
--- You can write 'toAstE' as a pair of functions.  The
--- first handling the E, T, or F cases:
 toAstE :: ParseTree -> Expr
--- First the base cases from 'F'
---   toAstE (Node "F" ...) =
---   toAstE (Node "F" ...) =
 toAstE (Node "F" [Node x []])
 	|isGNumber x = Lit (read x :: Integer)
 	|isIdentifier x = Var x
 toAstE (Node "F" [ (Node "(" []), ee@(Node "E" _), (Node ")" [])]) = toAstE ee
--- then build terms or factors
---   toAstE (Node _ ...) = toAstETail ...
 toAstE (Node "E" [ t@(Node "T" _), tt@(Node "TT" _) ]) = toAstETail (toAstE t) tt
 toAstE (Node "T" [ f@(Node "F" _), ft@(Node "FT" _) ]) = toAstETail (toAstE f) ft 
 --toAstE _ = undefined
@@ -560,7 +552,12 @@ data Environment = Env
 -- Be sure to understand this type!  Use 'Left' values to
 -- indicate errors.
 lookupEnv :: String -> Environment -> Either String Value
-lookupEnv _ _ = undefined
+--lookupEnv _ _ = undefined
+--lookupEnv var env = 
+lookupEnv var (Env [] _ _)= Left "Tah-Dah Undeclared!!!" 	
+lookupEnv var (Env ((a,b):xs) ein eout) 
+	| a == var = Right b
+	| otherwise = lookupEnv var (Env xs ein eout)
 
 updateEnv :: String -> Environment -> Value -> Environment
 updateEnv _ _ _ = undefined
@@ -569,6 +566,7 @@ updateEnv _ _ _ = undefined
 
 readEnv :: Environment -> Either String (Environment, Value)
 readEnv _ = undefined
+
 
 writeEnv :: Environment -> String -> Environment
 writeEnv _ = undefined
@@ -599,7 +597,15 @@ interpretCond :: Cond -> Environment -> Either String Bool
 interpretCond _ _ = undefined
 
 interpretE :: Expr -> Environment -> Either String Value
-interpretE _ _ = undefined
+--interpretE _ _ = undefined
+interpretE (Lit x) env = Right x
+interpretE (Op binop e1 e2) env =  do
+		re1 <- (interpretE e1 env)
+		re2 <- (interpretE e2 env)
+	 	case binop of "+" -> Right $ re1 + re2
+			      "-" -> Right $ re1 - re2
+		              "*" -> Right $ re1 * re2
+		              "/" -> Right $ div re1  re2
 
 -- -----------------------------------------------------
 p=words "read n \n\
